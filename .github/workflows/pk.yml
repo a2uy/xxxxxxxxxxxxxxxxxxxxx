@@ -23,13 +23,14 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --upgrade pip requests
 
-      - name: Fetch Tapmad playlist (raw save)
+      - name: Fetch Tapmad playlist (anti-redirect)
         env:
-          SOURCE_URL: ${{ secrets.TWO_URL }}
+          SOURCE_URL: ${{ secrets.ONE_URL }}
           OUTPUT_PATH: "tapmad_playlist.m3u"
         run: |
           python - <<'PY'
-          import os, sys, requests
+          import os, sys, requests, time
+          from urllib.parse import urljoin
 
           src = os.environ.get("SOURCE_URL")
           out = os.environ.get("OUTPUT_PATH")
@@ -38,23 +39,43 @@ jobs:
               print("❌ Missing SOURCE_URL (set ONE_URL secret)", file=sys.stderr)
               sys.exit(1)
 
-          try:
-              # allow redirects; keep raw body (binary safe)
-              r = requests.get(src, timeout=60, allow_redirects=True, headers={
-                  "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 10; IPTV-Player)"
-              })
-              r.raise_for_status()
-              data = r.content
-              print(f"✅ Fetched {len(data)} bytes from {src}")
-          except Exception as e:
-              print("❌ Failed to fetch:", e, file=sys.stderr)
-              sys.exit(1)
+          headers = {
+              "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 10; IPTV-Player)",
+              "Accept": "*/*",
+              "Connection": "keep-alive",
+              "Referer": "https://tv.noobon.top/",
+              "Origin": "https://tv.noobon.top",
+          }
 
-          # Save as raw binary
+          session = requests.Session()
+          session.headers.update(headers)
+
+          def fetch(url):
+              try:
+                  r = session.get(url, timeout=40, allow_redirects=False)
+                  # Handle Telegram redirect manually
+                  if 300 <= r.status_code < 400 and "Location" in r.headers:
+                      loc = r.headers["Location"]
+                      print(f"🔁 Redirected to: {loc}")
+                      if loc.startswith("/"):
+                          loc = urljoin(url, loc)
+                      time.sleep(1)
+                      return fetch(loc)
+                  if "text/html" in r.headers.get("Content-Type", "") and "#EXTM3U" not in r.text:
+                      print("⚠️ Got HTML page instead of playlist!")
+                  return r
+              except Exception as e:
+                  print("❌ Request failed:", e)
+                  sys.exit(1)
+
+          r = fetch(src)
+          data = r.content
+
+          # Save binary-safe (works for utf8 or raw)
           with open(out, "wb") as f:
               f.write(data)
 
-          print(f"💾 Saved playlist to {out}")
+          print(f"✅ Saved {len(data)} bytes to {out}")
           PY
 
       - name: Commit & push if changed
