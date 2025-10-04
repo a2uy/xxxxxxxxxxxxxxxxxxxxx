@@ -1,4 +1,4 @@
-name: Update DistroTV.m3u
+name: Update Movies.m3u
 
 on:
   workflow_dispatch:
@@ -13,16 +13,16 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v2
 
-    - name: Fetch DistroTV.m3u from hosting and add notice
+    - name: Fetch movies.m3u from hosting and add notice
       env:
-        FILE_URL: ${{ secrets.DISTROTV_FILE_URL }}
+        FILE_URL: ${{ secrets.ONE_URL }}
       run: |
         curl -o original.m3u $FILE_URL
 
         # Add notice to beginning
-        echo '# This m3u presented by https://t.me/FreeDishBhai' > DistroTV.m3u
-        echo '# API from dishlive24 (FreeDishBhai)' >> DistroTV.m3u
-        cat original.m3u >> DistroTV.m3u
+        echo '# This m3u presented by https://t.me/ToufikOP' > movies.m3u
+        echo '
+        cat original.m3u >> movies.m3u
         rm original.m3u
 
     - name: Commit and push changes
@@ -32,7 +32,7 @@ jobs:
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-        git add DistroTV.m3u
+        git add movies.m3u
         git commit -m "Update DistroTV.m3u file." || echo "No changes to commit"
 
         git pull origin main --rebase
