@@ -1,40 +1,83 @@
-name: Update Movies.m3u
+name: Update movies m3u8 playlist
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: '0 */12 * * *'
+    - cron: '0 * * * *' # প্রতি ঘন্টায় একবার চলবে
+  workflow_dispatch:
 
 jobs:
-  update-file:
+  fetch-and-commit:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
-    - name: Fetch movies.m3u from hosting and add notice
-      env:
-        FILE_URL: ${{ secrets.ONE_URL }}
-      run: |
-        curl -o original.m3u $FILE_URL
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
 
-        # Add notice to beginning
-        echo '# This m3u presented by https://t.me/ToufikOP' > movies.m3u
-        echo '
-        cat original.m3u >> movies.m3u
-        rm original.m3u
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip requests
 
-    - name: Commit and push changes
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Fetch m3u8 links and save to root
+        env:
+          SOURCE_URL: ${{ secrets.ONE_URL }}
+          OUTPUT_PATH: "movies_playlist.m3u8"
+        run: |
+          python - <<'PY'
+          import re, os, sys, requests
+          from urllib.parse import urljoin
 
-        git add movies.m3u
-        git commit -m "Update DistroTV.m3u file." || echo "No changes to commit"
+          src = os.environ.get("SOURCE_URL")
+          out = os.environ.get("OUTPUT_PATH")
 
-        git pull origin main --rebase
-        git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}
-        git push origin HEAD:main
+          if not src:
+              print("❌ Missing SOURCE_URL (set ONE_URL secret)", file=sys.stderr)
+              sys.exit(1)
+
+          try:
+              r = requests.get(src, timeout=30)
+              r.raise_for_status()
+              text = r.text
+          except Exception as e:
+              print("❌ Failed to fetch source URL:", e, file=sys.stderr)
+              sys.exit(1)
+
+          urls = set()
+
+          # Absolute links
+          urls.update(re.findall(r'https?://[^\s"\'<>]+?\.m3u8', text, re.I))
+
+          # Relative links
+          for match in re.findall(r'["\']([^"\']+?\.m3u8)["\']', text, re.I):
+              abs_url = urljoin(src, match)
+              urls.add(abs_url)
+
+          if not urls:
+              print("⚠️ No .m3u8 links found.")
+              open(out, "w").write("# No m3u8 found\n")
+              sys.exit(0)
+
+          with open(out, "w", encoding="utf-8") as f:
+              f.write("# Source: {}\n".format(src))
+              for u in sorted(urls):
+                  f.write(u + "\n")
+
+          print(f"✅ Saved {len(urls)} links to {out}")
+          PY
+
+      - name: Commit & push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add movies_playlist.m3u8
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "update: movies m3u8 playlist (auto)"
+            git push origin HEAD
+          fi
