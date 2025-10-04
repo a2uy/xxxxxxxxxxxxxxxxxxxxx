@@ -25,7 +25,7 @@ jobs:
 
       - name: Fetch Tapmad playlist (anti-redirect)
         env:
-          SOURCE_URL: ${{ secrets.ONE_URL }}
+          SOURCE_URL: ${{ secrets.TWO_URL }}
           OUTPUT_PATH: "tapmad_playlist.m3u"
         run: |
           python - <<'PY'
