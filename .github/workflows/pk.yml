@@ -1,8 +1,8 @@
-name: Save Playlist (Tapmad)
+name: Save Tapmad Playlist
 
 on:
   schedule:
-    - cron: "*/30 * * * *" # প্রতি ৩০ মিনিটে একবার রান হবে
+    - cron: "*/30 * * * *" # প্রতি ৩০ মিনিটে
   workflow_dispatch:
 
 jobs:
@@ -12,16 +12,37 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Fetch Playlist (with redirects)
+      - name: Fetch Playlist (ExoPlayer/All UA)
+        env:
+          TWO_URL: ${{ secrets.TWO_URL }}
         run: |
-          echo "Fetching from $TWO_URL ..."
-          curl -L -s -A "Mozilla/5.0" "$TWO_URL" -o playlist.m3u || exit 1
+          echo "Fetching playlist from $TWO_URL ..."
 
-          # যদি HTML আসে, তাহলে #EXTINF থেকে শুরু করে নিচের লাইনগুলো রাখবে
-          if grep -q "<html" playlist.m3u; then
-            echo "HTML detected — extracting possible M3U section..."
-            sed -n '/#EXTINF/,$p' playlist.m3u > playlist_fixed.m3u || true
-            mv playlist_fixed.m3u playlist.m3u
+          # Define multiple User-Agents
+          UA_LIST=(
+            "Dalvik/2.1.0 (Linux; U; Android 10; ExoPlayer)"
+            "Mozilla/5.0 (Linux; Android 12; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.5735.199 Mobile Safari/537.36 ExoPlayer"
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (Linux; Android 11; ExoPlayer 2.17.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.5672.127 Mobile Safari/537.36"
+          )
+
+          SUCCESS=0
+          for UA in "${UA_LIST[@]}"; do
+            echo "Trying User-Agent: $UA"
+            curl -L -s -A "$UA" -H "Accept: */*" -H "Connection: keep-alive" "$TWO_URL" -o playlist.m3u
+
+            # Check if playlist contains #EXTM3U
+            if grep -q "^#EXTM3U" playlist.m3u; then
+              echo "✅ Playlist fetched successfully with this UA."
+              SUCCESS=1
+              break
+            else
+              echo "⚠️ #EXTM3U not found, trying next UA..."
+            fi
+          done
+
+          if [ $SUCCESS -ne 1 ]; then
+            echo "❌ Failed to fetch valid playlist. Saving last attempt anyway."
           fi
 
           echo "Saved $(wc -l < playlist.m3u) lines to playlist.m3u"
@@ -34,5 +55,3 @@ jobs:
           git add playlist.m3u
           git commit -m "Updated playlist $(date '+%Y-%m-%d %H:%M:%S')" || exit 0
           git push
-    env:
-      TWO_URL: ${{ secrets.TWO_URL }}
